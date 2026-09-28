@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Marketplace Multi-Vendor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <!-- Config Form jika Key Belum Diisi -->
+    <div id="config-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+        <div class="bg-white p-6 rounded-lg max-w-md w-full shadow-2xl">
+            <h2 class="text-xl font-bold mb-4">Hubungkan ke Supabase Anda</h2>
+            <p class="text-sm text-gray-600 mb-4">Masukkan URL dan ANON KEY dari Supabase Settings -> API Anda.</p>
+            <input type="text" id="cfg-url" placeholder="Supabase URL (https://...)" class="w-full border p-2 mb-3 rounded text-sm">
+            <input type="text" id="cfg-key" placeholder="Supabase Anon Key" class="w-full border p-2 mb-4 rounded text-sm">
+            <button onclick="saveConfig()" class="w-full bg-indigo-600 text-white py-2 rounded font-bold hover:bg-indigo-700">Hubungkan Marketplace</button>
+        </div>
+    </div>
+
+    <nav class="bg-indigo-600 text-white p-4 shadow-lg">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold">Marketplace Live</h1>
+            <div class="space-x-2">
+                <button onclick="switchTab('buyer')" class="bg-indigo-700 px-3 py-1 rounded text-sm">🛒 Pembeli</button>
+                <button onclick="switchTab('seller')" class="bg-indigo-700 px-3 py-1 rounded text-sm">🏪 Dashboard Penjual</button>
+                <button onclick="switchTab('admin')" class="bg-indigo-900 px-3 py-1 rounded text-sm font-bold">👑 Admin Komisi</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-6xl mx-auto p-6">
+        <!-- View Pembeli -->
+        <div id="buyer-view" class="tab-content">
+            <h2 class="text-2xl font-bold mb-4">Katalog Produk Live</h2>
+            <div id="product-list" class="grid grid-cols-1 md:grid-cols-3 gap-6">Loading...</div>
+        </div>
+
+        <!-- View Penjual -->
+        <div id="seller-view" class="tab-content hidden">
+            <h2 class="text-2xl font-bold mb-4">Dashboard Toko</h2>
+            <div class="bg-white p-6 rounded-lg shadow mb-6">
+                <h3 class="font-bold mb-3">Tambah Produk Baru</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <input type="text" id="p-title" placeholder="Nama Produk" class="border p-2 rounded">
+                    <input type="number" id="p-price" placeholder="Harga (Rp)" class="border p-2 rounded">
+                    <button onclick="addProduct()" class="bg-indigo-600 text-white p-2 rounded font-bold">Upload Produk</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Admin -->
+        <div id="admin-view" class="tab-content hidden">
+            <h2 class="text-2xl font-bold mb-4">Laporan Keuangan Komisi Anda</h2>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b bg-gray-50">
+                            <th class="p-2">Produk</th>
+                            <th class="p-2">Total Harga</th>
+                            <th class="p-2 text-indigo-600">Komisi Anda</th>
+                            <th class="p-2 text-green-600">Hak Penjual</th>
+                        </tr>
+                    </thead>
+                    <tbody id="order-history"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        
+        function initDB() {
+            const url = localStorage.getItem('sp_url');
+            const key = localStorage.getItem('sp_key');
+            if (url && key) {
+                document.getElementById('config-modal').classList.add('hidden');
+                db = supabase.createClient(url, key);
+                loadProducts();
+                loadOrders();
+            }
+        }
+
+        function saveConfig() {
+            const url = document.getElementById('cfg-url').value;
+            const key = document.getElementById('cfg-key').value;
+            if(url && key) {
+                localStorage.setItem('sp_url', url);
+                localStorage.setItem('sp_key', key);
+                initDB();
+            }
+        }
+
+        async function loadProducts() {
+            const { data, error } = await db.from('products').select('*');
+            if (error) return alert("Gagal mengambil data: " + error.message);
+            
+            const list = document.getElementById('product-list');
+            list.innerHTML = '';
+            data.forEach(p => {
+                list.innerHTML += `
+                    <div class="bg-white p-5 rounded-lg shadow">
+                        <h3 class="font-bold text-lg">${p.title}</h3>
+                        <p class="text-indigo-600 font-bold my-2">Rp ${p.price.toLocaleString('id-ID')}</p>
+                        <button onclick="buyProduct('${p.id}', '${p.title}', ${p.price})" class="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">
+                            Beli Sekarang
+                        </button>
+                    </div>
+                `;
+            });
+        }
+
+        async function buyProduct(id, title, price) {
+            const rate = 5; // 5% Komisi Anda
+            const platformFee = price * (rate / 100);
+            const sellerAmount = price - platformFee;
+
+            const { error } = await db.from('orders').insert([
+                { product_name: title, total_price: price, platform_fee: platformFee, seller_amount: sellerAmount }
+            ]);
+
+            if(!error) {
+                alert(`Pembelian Berhasil!\n\nKomisi Anda (5%): Rp ${platformFee.toLocaleString('id-ID')}\nTransfer ke Penjual: Rp ${sellerAmount.toLocaleString('id-ID')}`);
+                loadOrders();
+            }
+        }
+
+        async function addProduct() {
+            const title = document.getElementById('p-title').value;
+            const price = parseFloat(document.getElementById('p-price').value);
+            
+            // Ambil ID Toko Pertama
+            const { data: stores } = await db.from('stores').select('id').limit(1);
+            if(stores.length > 0) {
+                await db.from('products').insert([{ store_id: stores[0].id, title, price }]);
+                alert("Produk berhasil ditambahkan!");
+                document.getElementById('p-title').value = '';
+                document.getElementById('p-price').value = '';
+                loadProducts();
+                switchTab('buyer');
+            }
+        }
+
+        async function loadOrders() {
+            const { data } = await db.from('orders').select('*').order('created_at', { ascending: false });
+            const history = document.getElementById('order-history');
+            if(data) {
+                history.innerHTML = '';
+                data.forEach(o => {
+                    history.innerHTML += `
+                        <tr class="border-b">
+                            <td class="p-2">${o.product_name}</td>
+                            <td class="p-2">Rp ${o.total_price.toLocaleString('id-ID')}</td>
+                            <td class="p-2 text-indigo-600 font-bold">+ Rp ${o.platform_fee.toLocaleString('id-ID')}</td>
+                            <td class="p-2 text-green-600 font-bold">+ Rp ${o.seller_amount.toLocaleString('id-ID')}</td>
+                        </tr>
+                    `;
+                });
+            }
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`${tab}-view`).classList.remove('hidden');
+        }
+
+        initDB();
+    </script>
+</body>
+</html>
